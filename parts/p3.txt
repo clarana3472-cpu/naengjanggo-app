@@ -1,0 +1,220 @@
+10px"></div>
+    <div class="modal-actions"><button type="button" class="btn dialog-cancel">취소</button><button class="btn primary" value="default">이 날짜에 불러오기</button></div>
+  </form>
+</dialog>
+
+<dialog id="settingsDialog">
+  <div class="modal">
+    <h2>설정 · 백업</h2>
+    <p class="small">데이터는 이 브라우저 안에 저장됩니다. 브라우저 데이터를 지우거나 휴대폰을 바꾸면 사라질 수 있으니 가끔 백업해두세요.</p>
+    <div class="settings-section">
+      <button class="btn primary" id="exportBtn">백업 파일 저장</button>
+      <button class="btn" id="importBtn">백업 불러오기</button>
+      <input id="importFile" type="file" accept=".json,application/json" class="hide">
+    </div>
+    <div class="settings-section"><button class="btn danger" id="resetBtn">모든 데이터 삭제</button></div>
+    <div class="modal-actions"><button class="btn" id="closeSettings">닫기</button></div>
+  </div>
+</dialog>
+
+<script>
+const KEY='fridge_mealprep_v1';
+let data;
+try{data=JSON.parse(localStorage.getItem(KEY)||'{}')}catch{data={}}
+data.stock=Array.isArray(data.stock)?data.stock:[];
+data.meal=Array.isArray(data.meal)?data.meal:[];
+data.plan=Array.isArray(data.plan)?data.plan:[];
+data.prepPlan=Array.isArray(data.prepPlan)?data.prepPlan:[];
+data.prepRecipe=Array.isArray(data.prepRecipe)?data.prepRecipe:[];
+data.mealGroup=Array.isArray(data.mealGroup)?data.mealGroup:[];
+data.stock=data.stock.map(x=>({...x,qtyUnknown:x.qtyUnknown===true,category:String(x.category||'').trim()||'기타'}));
+
+const pad=n=>String(n).padStart(2,'0');
+
+let currentSection='fridge';
+let currentPrepTab='recipes';
+let currentMealTab='plan';
+let currentTab='stock';
+let stockLocation='냉장';
+let stockCategory='전체';
+let editing=null;
+let editingPlanId=null;
+let editingPrepId=null;
+let editingPrepRecipeId=null;
+let editingMealGroupId=null;
+let prepDialogMode='plan';
+let calendarView='week';
+let selectedDate=todayISO();
+let calendarAnchor=parseLocalDate(selectedDate);
+
+const $=id=>document.getElementById(id);
+const list=$('list');
+
+function localISO(d){
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function todayISO(){return localISO(new Date())}
+function parseLocalDate(s){
+  if(!s)return new Date();
+  const [y,m,d]=s.split('-').map(Number);
+  return new Date(y,m-1,d);
+}
+function addDays(d,n){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());x.setDate(x.getDate()+n);return x}
+function startOfWeek(d){
+  const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  const day=(x.getDay()+6)%7; // Mon = 0
+  x.setDate(x.getDate()-day);return x;
+}
+function sameDate(a,b){return localISO(a)===localISO(b)}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function save(){localStorage.setItem(KEY,JSON.stringify(data));render()}
+function closeDialogFromCancel(btn){
+  const dialog=btn.closest('dialog');
+  if(!dialog)return;
+  if(dialog.id==='editDialog') editing=null;
+  if(dialog.id==='planDialog') editingPlanId=null;
+  if(dialog.id==='prepDialog'){editingPrepId=null;editingPrepRecipeId=null;delete dialog.dataset.recipeId;}
+  if(dialog.id==='mealGroupDialog') editingMealGroupId=null;
+  const form=btn.closest('form');
+  if(form) form.reset();
+  dialog.close();
+}
+document.addEventListener('click',e=>{const btn=e.target.closest('.dialog-cancel');if(btn){e.preventDefault();e.stopPropagation();closeDialogFromCancel(btn);}});
+function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function daysUntil(dateStr){
+  if(!dateStr)return null;
+  const t=parseLocalDate(todayISO()),d=parseLocalDate(dateStr);
+  return Math.round((d-t)/86400000);
+}
+function dateBadge(dateStr){
+  const n=daysUntil(dateStr);if(n===null)return'';
+  if(n<0)return`<span class="badge danger">${Math.abs(n)}일 지남</span>`;
+  if(n===0)return`<span class="badge danger">오늘까지</span>`;
+  if(n<=3)return`<span class="badge warn">${n}일 남음</span>`;
+  return`<span class="badge good">${n}일 남음</span>`;
+}
+function slotOrder(s){return {'아침':0,'점심':1,'저녁':2,'간식':3}[s]??9}
+function findSource(r){return data[r.type]?.find(x=>x.id===r.id)}
+function isQtyUnknown(x){return !!(x && x.qtyUnknown===true)}
+function cleanCategory(v){return String(v||'').trim()}
+function categoriesForLocation(location){
+  return [...new Set(
+    data.stock
+      .filter(x=>x.location===location)
+      .map(x=>cleanCategory(x.category))
+      .filter(Boolean)
+  )].sort((a,b)=>a.localeCompare(b,'ko'));
+}
+function refreshCategorySuggestions(){
+  const all=[...new Set(data.stock.map(x=>cleanCategory(x.category)).filter(Boolean))]
+    .sort((a,b)=>a.localeCompare(b,'ko'));
+  $('categorySuggestions').innerHTML=all.map(c=>`<option value="${esc(c)}"></option>`).join('');
+}
+function renderCategoryTabs(){
+  const wrap=$('categoryTabs');
+  const isStock=currentSection==='fridge'&&currentTab==='stock';
+  wrap.classList.toggle('hide',!isStock);
+  if(!isStock)return;
+
+  const cats=categoriesForLocation(stockLocation);
+  if(stockCategory!=='전체'&&!cats.includes(stockCategory)) stockCategory='전체';
+
+  const values=['전체',...cats];
+  wrap.innerHTML=values.map(c=>`<button type="button" class="category-chip ${c===stockCategory?'active':''}" data-category="${esc(c)}">${esc(c)}</button>`).join('');
+  wrap.querySelectorAll('.category-chip').forEach(btn=>btn.onclick=()=>{
+    stockCategory=btn.dataset.category;
+    render();
+  });
+}
+function planItemNames(p){
+  const names=(p.ingredients||[]).map(r=>{
+    const src=findSource(r);
+    return (src?.name||r.name||'').trim();
+  }).filter(Boolean);
+  return [...new Set(names)];
+}
+function planCalendarLabel(p){
+  const names=planItemNames(p);
+  if(!names.length)return '식단';
+  if(names.length<=2)return names.join(', ');
+  return `${names.slice(0,2).join(', ')} 외 ${names.length-2}`;
+}
+function formatDateLong(s){
+  const d=parseLocalDate(s);
+  const w=['일','월','화','수','목','금','토'][d.getDay()];
+  return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${w})`;
+}
+function formatDateShort(s){
+  const d=parseLocalDate(s);
+  const w=['일','월','화','수','목','금','토'][d.getDay()];
+  return `${d.getMonth()+1}/${d.getDate()} (${w})`;
+}
+
+function getItems(){
+  let items=currentTab==='meal'?data.meal:data.stock;
+  const q=$('searchInput').value.trim().toLowerCase();
+  if(currentTab==='stock'){
+    return items.filter(x=>
+      (!q||x.name.toLowerCase().includes(q)) &&
+      x.location===stockLocation &&
+      (stockCategory==='전체'||cleanCategory(x.category)===stockCategory)
+    );
+  }
+  const loc=$('locationFilter').value;
+  return items.filter(x=>(!q||x.name.toLowerCase().includes(q))&&(!loc||x.location===loc));
+}
+function renderInventory(){
+  const items=getItems();
+  if(!items.length){
+    const emptyText=currentTab==='stock'
+      ? (stockCategory==='전체'
+          ? `${stockLocation} 보관 재고가 아직 없어요.<br>아래 <b>＋ 추가</b>를 눌러 등록하세요.`
+          : `${stockLocation}의 <b>${esc(stockCategory)}</b> 카테고리에 재고가 없어요.`)
+      : `아직 표시할 항목이 없어요.<br>아래 <b>＋ 추가</b>를 눌러 시작하세요.`;
+    list.innerHTML=`<div class="empty">${emptyText}</div>`;return
+  }
+  list.innerHTML=items.map(x=>{
+    const type=currentTab;
+    const unknown=type==='stock'&&isQtyUnknown(x);
+    const qtyLabel=unknown?'수량 모름':`${x.qty??0}${x.unit?' '+esc(x.unit):''}`;
+    return `<div class="card">
+      <div class="card-top">
+        <div>
+          <div class="name">${esc(x.name)}</div>
+          <div class="meta">${esc(x.location||'')}${cleanCategory(x.category)?' · '+esc(cleanCategory(x.category)):''} · ${qtyLabel}${x.date?' · '+esc(x.date):''}${type==='meal'&&x.madeDate?' · 만든 날짜 '+esc(x.madeDate):''}</div>
+          <div style="margin-top:7px">${unknown?'<span class="badge">수량 모름 · 차감 안 함</span>':''}${dateBadge(x.date)}</div>
+          ${x.note?`<div class="meta">📝 ${esc(x.note)}</div>`:''}
+        </div>
+        ${unknown?`<div class="qty"><span class="qty-unknown">수량 모름</span></div>`:`<div class="qty">
+          <button onclick="changeQty('${type}','${x.id}',-1)">−</button><strong>${x.qty??0}</strong><button onclick="changeQty('${type}','${x.id}',1)">＋</button>
+        </div>`}
+      </div>
+      <div class="actions"><button class="btn" onclick="openEdit('${type}','${x.id}')">수정</button><button class="btn danger" onclick="removeItem('${type}','${x.id}')">삭제</button></div>
+    </div>`
+  }).join('');
+}
+
+function plannedAmountUntil(targetPlan,type,id){
+  let total=0;
+  const targetDate=targetPlan.date||'';
+  const targetSlot=slotOrder(targetPlan.slot);
+  const targetIndex=(data.plan||[]).findIndex(x=>x.id===targetPlan.id);
+
+  for(let i=0;i<(data.plan||[]).length;i++){
+    const plan=data.plan[i];
+    if(plan.done) continue;
+
+    const planDate=plan.date||'';
+    const planSlot=slotOrder(plan.slot);
+
+    // 날짜 -> 끼니 -> 같은 끼니 안에서는 등록 순서대로 누적
+    const isBeforeOrSame =
+      planDate < targetDate ||
+      (planDate === targetDate && planSlot < targetSlot) ||
+      (planDate === targetDate && planSlot === targetSlot && i <= targetIndex);
+
+    if(!isBeforeOrSame) continue;
+
+    for(const r of plan.ingredients||[]){
+      if(r.type===type && r.id===id){
+        const src=find

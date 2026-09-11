@@ -1,0 +1,124 @@
+ap.querySelector('.ing-selected').textContent='아직 선택 안 됨';prepRenderIngredientResults(wrap)};
+  search.onfocus=()=>prepRenderIngredientResults(wrap);
+  search.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();prepRenderIngredientResults(wrap);const first=wrap.querySelector('.ing-result');if(first){prepChooseIngredient(wrap,first.dataset.id);search.blur()}}};
+  $('prepIngredientRows').appendChild(wrap);
+  if(item)prepChooseIngredient(wrap,item.id);
+}
+function prepPlannedAmountUntil(target,id){
+  let total=0;
+  const pending=(data.prepPlan||[]).filter(x=>!x.done).slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')) || (data.prepPlan.indexOf(a)-data.prepPlan.indexOf(b)));
+  for(const p of pending){
+    for(const r of p.ingredients||[])if(r.id===id){const src=data.stock.find(x=>x.id===id);if(src&&!isQtyUnknown(src))total+=Number(r.amount||0)}
+    if(p.id===target.id)break;
+  }
+  return total;
+}
+function prepIngredientText(p){
+  if(!p.ingredients?.length)return '<span class="small">원료 연결 없음</span>';
+  return p.ingredients.map(r=>{
+    const src=data.stock.find(x=>x.id===r.id),name=src?.name||r.name||'삭제된 재고',unit=src?.unit||r.unit||'';
+    if(src&&isQtyUnknown(src))return `<div>• ${esc(name)} <span class="small">(수량 모름 · 차감 안 함)</span></div>`;
+    if(!src)return `<div style="color:#b45309">• ${esc(name)} <span class="small">(현재 재고 없음)</span></div>`;
+    const now=Number(src.qty||0),amount=Number(r.amount||0);
+    if(p.done)return `<div>• ${esc(name)} ${amount}${unit?' '+esc(unit):''} <span class="small">(현재 ${now}${unit?' '+esc(unit):''})</span></div>`;
+    const projected=now-prepPlannedAmountUntil(p,r.id);
+    return projected>=0?`<div>• ${esc(name)} ${amount}${unit?' '+esc(unit):''} <span class="small">(현재 ${now}${unit?' '+esc(unit):''} → ${projected}${unit?' '+esc(unit):''} 남음)</span></div>`:`<div style="color:#b45309">• ${esc(name)} ${amount}${unit?' '+esc(unit):''} <span class="small">(현재 ${now}${unit?' '+esc(unit):''} → ${Math.abs(projected)}${unit?' '+esc(unit):''} 부족)</span></div>`;
+  }).join('');
+}
+function prepRecipeIngredientText(r){
+  if(!r.ingredients?.length)return '<span class="small">원료 연결 없음</span>';
+  return r.ingredients.map(x=>{
+    const src=data.stock.find(s=>s.id===x.id),name=src?.name||x.name||'삭제된 재고',unit=src?.unit||x.unit||'';
+    if(src&&isQtyUnknown(src))return `<div>• ${esc(name)} <span class="small">(수량 모름 · 차감 안 함)</span></div>`;
+    return `<div>• ${esc(name)} ${Number(x.amount||0)}${unit?' '+esc(unit):''}</div>`;
+  }).join('');
+}
+function prepRecipeCard(r){
+  return `<div class="card"><div class="card-top"><div><div class="name">${esc(r.name)}</div><div class="meta">${r.qty}${r.unit?' '+esc(r.unit):''} · ${esc(r.location||'냉동')}</div>${r.note?`<div class="meta">📝 ${esc(r.note)}</div>`:''}</div></div><div class="ingredients">${prepRecipeIngredientText(r)}</div><div class="actions"><button class="btn good" onclick="loadPrepRecipe('${r.id}')">계획으로 불러오기</button><button class="btn" onclick="openPrepRecipe('${r.id}')">수정</button><button class="btn danger" onclick="removePrepRecipe('${r.id}')">삭제</button></div></div>`;
+}
+function prepCard(p){
+  return `<div class="card plan-card ${p.done?'done':''}"><div class="card-top"><div><div class="name">${esc(p.name)}</div><div class="meta">${esc(p.date||'')} · ${p.qty}${p.unit?' '+esc(p.unit):''} · ${esc(p.location||'냉동')}</div>${p.done?'<span class="badge good">만들기 완료</span>':'<span class="badge blue">계획</span>'}${p.recipeId?'<span class="badge blue">저장된 밀프랩</span>':''}${p.note?`<div class="meta">📝 ${esc(p.note)}</div>`:''}</div></div><div class="ingredients">${prepIngredientText(p)}</div><div class="actions">${p.done?`<button class="btn" onclick="undoPrep('${p.id}')">완료 취소</button>`:`<button class="btn good" onclick="finishPrep('${p.id}')">✓ 만들기 완료 · 재고반영</button>`}<button class="btn" onclick="openPrep('${p.id}')">수정</button><button class="btn danger" onclick="removePrep('${p.id}')">삭제</button></div></div>`;
+}
+function renderPrep(){
+  const recipes=(data.prepRecipe||[]).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ko'));
+  $('prepRecipeList').innerHTML=recipes.length?recipes.map(prepRecipeCard).join(''):`<div class="empty">저장된 밀프랩이 없어요.<br><b>＋ 밀프랩 저장</b>에서 원료와 사용량을 한 번 저장해두세요.</div>`;
+  const arr=(data.prepPlan||[]).slice().sort((a,b)=>String(a.done).localeCompare(String(b.done))||String(a.date||'').localeCompare(String(b.date||'')));
+  $('prepHeadingCount').textContent=`${arr.filter(x=>!x.done).length}개 계획`;
+  $('prepPlanList').innerHTML=arr.length?arr.map(prepCard).join(''):`<div class="empty">아직 밀프랩 계획이 없어요.<br>저장된 밀프랩을 불러오거나 아래 <b>＋ 계획 추가</b>를 눌러 시작하세요.</div>`;
+}
+function fillPrepForm(source=null){
+  $('prepName').value=source?.name||'';
+  $('prepDate').value=source?.date||todayISO();
+  $('prepQty').value=source?.qty??4;
+  $('prepUnit').value=source?.unit||'끼';
+  $('prepLocation').value=source?.location||'냉동';
+  $('prepNote').value=source?.note||'';
+  $('prepIngredientRows').innerHTML='';
+  (source?.ingredients||[]).forEach(r=>addPrepIngredientRow(r));
+  if(!(source?.ingredients?.length))addPrepIngredientRow();
+}
+function openPrep(id=null){
+  delete $('prepDialog').dataset.recipeId;
+  prepDialogMode='plan';editingPrepRecipeId=null;editingPrepId=id;
+  const p=id?data.prepPlan.find(x=>x.id===id):null;
+  $('prepDialogTitle').textContent=id?'밀프랩 계획 수정':'밀프랩 계획 추가';
+  $('prepDateField').classList.remove('hide');$('prepDate').required=true;
+  fillPrepForm(p);$('prepDialog').showModal();
+}
+function openPrepRecipe(id=null){
+  delete $('prepDialog').dataset.recipeId;
+  prepDialogMode='recipe';editingPrepId=null;editingPrepRecipeId=id;
+  const r=id?data.prepRecipe.find(x=>x.id===id):null;
+  $('prepDialogTitle').textContent=id?'저장된 밀프랩 수정':'밀프랩 저장';
+  $('prepDateField').classList.add('hide');$('prepDate').required=false;
+  fillPrepForm(r);$('prepDialog').showModal();
+}
+function loadPrepRecipe(id){
+  const r=data.prepRecipe.find(x=>x.id===id);if(!r)return;
+  prepDialogMode='plan';editingPrepId=null;editingPrepRecipeId=null;
+  $('prepDialogTitle').textContent='저장된 밀프랩 불러오기';
+  $('prepDateField').classList.remove('hide');$('prepDate').required=true;
+  fillPrepForm({...r,date:todayISO()});
+  $('prepDialog').dataset.recipeId=id;
+  $('prepDialog').showModal();
+}
+function removePrepRecipe(id){
+  if(confirm('저장된 밀프랩을 삭제할까요? 기존 제작 기록과 재고에는 영향이 없습니다.')){data.prepRecipe=data.prepRecipe.filter(x=>x.id!==id);save()}
+}
+function finishPrep(id){
+  const p=data.prepPlan.find(x=>x.id===id);if(!p||p.done)return;
+  const shortages=[];
+  for(const r of p.ingredients||[]){const s=data.stock.find(x=>x.id===r.id);if(!s){shortages.push(r.name||'원료');continue}if(isQtyUnknown(s))continue;if(Number(s.qty||0)<Number(r.amount||0))shortages.push(s.name||r.name||'원료')}
+  const msg=shortages.length?`재고가 부족한 원료가 있어요: ${shortages.join(', ')}\n그래도 가능한 수량만 차감하고 밀프랩을 추가할까요?`:'원료 재고를 차감하고 완성된 밀프랩을 재고에 추가할까요?';
+  if(!confirm(msg))return;
+  p.deducted=[];
+  for(const r of p.ingredients||[]){const s=data.stock.find(x=>x.id===r.id);if(!s||isQtyUnknown(s))continue;const before=Number(s.qty||0),used=Math.min(before,Number(r.amount||0));s.qty=Math.max(0,before-used);p.deducted.push({id:r.id,amount:used})}
+  const mealId=uid();data.meal.push({id:mealId,name:p.name,qty:Number(p.qty||0),qtyUnknown:false,unit:p.unit||'끼',location:p.location||'냉동',category:'',date:'',madeDate:p.date||todayISO(),note:p.note||''});p.createdMealId=mealId;p.done=true;save();
+}
+function undoPrep(id){
+  const p=data.prepPlan.find(x=>x.id===id);if(!p||!p.done)return;if(!confirm('완료를 취소하고 차감한 원료를 돌려놓고 반영된 밀프랩 재고도 되돌릴까요?'))return;
+  for(const r of p.deducted||[]){const s=data.stock.find(x=>x.id===r.id);if(s&&!isQtyUnknown(s))s.qty=Number(s.qty||0)+Number(r.amount||0)}
+  if(p.createdMealId)data.meal=data.meal.filter(x=>x.id!==p.createdMealId);
+  p.done=false;p.deducted=[];p.createdMealId=null;save();
+}
+function removePrep(id){const p=data.prepPlan.find(x=>x.id===id);if(p?.done){alert('완료한 계획은 먼저 “완료 취소”를 해주세요.');return}if(confirm('이 밀프랩 계획을 삭제할까요?')){data.prepPlan=data.prepPlan.filter(x=>x.id!==id);save()}}
+window.openPrep=openPrep;window.openPrepRecipe=openPrepRecipe;window.loadPrepRecipe=loadPrepRecipe;window.removePrepRecipe=removePrepRecipe;window.finishPrep=finishPrep;window.undoPrep=undoPrep;window.removePrep=removePrep;
+
+
+function clonePlanForGroup(p){
+  return {
+    slot:p.slot||'점심',
+    note:p.note||'',
+    ingredients:(p.ingredients||[]).map(r=>({type:r.type,id:r.id,amount:r.amount,name:r.name||'',unit:r.unit||'',noDeduct:!!r.noDeduct}))
+  };
+}
+function mealGroupItemLabel(item){
+  const names=(item.ingredients||[]).map(r=>r.name||'재고').filter(Boolean);
+  const main=names.length?names.join(' + '):(item.note||'식단');
+  return `${item.slot||'끼니'} · ${main}`;
+}
+function mealGroupPreviewHTML(items){
+  if(!items?.length)return '<div class="small">해당 끼니에 저장할 식단이 없어요.</div>';
+  return items.map(x=>`<div>• ${mealGroupItemLabel(x)}</div>`).join('');
+}
+function clonePlanForGro

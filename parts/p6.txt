@@ -1,0 +1,160 @@
+up(p){
+  return {slot:p.slot||'점심',note:p.note||'',ingredients:(p.ingredients||[]).map(r=>({...r}))};
+}
+function plansForMeal(date,slot){
+  return (data.plan||[]).filter(p=>p.date===date&&p.slot===slot).map(clonePlanForGroup);
+}
+function renderMealGroups(){
+  const arr=(data.mealGroup||[]).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ko'));
+  $('mealGroupList').innerHTML=arr.length?arr.map(g=>{
+    const items=g.items||[];
+    const savedSlot=g.slot||items[0]?.slot||'점심';
+    return `<div class="card"><div class="card-top"><div><div class="name">${esc(g.name)}</div><div class="meta">${esc(savedSlot)} · ${items.length}개 항목</div></div></div><div class="ingredients">${mealGroupPreviewHTML(items)}</div><div class="actions"><button class="btn good" onclick="openMealGroupLoad('${g.id}')">식단표에 불러오기</button><button class="btn" onclick="openMealGroup('${g.id}')">수정</button><button class="btn danger" onclick="removeMealGroup('${g.id}')">삭제</button></div></div>`;
+  }).join(''):`<div class="empty">저장된 식단이 없어요.<br>식단표에서 한 끼를 만든 뒤 <b>＋ 식단 만들기</b>로 저장해보세요.</div>`;
+}
+function updateMealGroupPreview(){
+  const items=plansForMeal($('mealGroupSourceDate').value,$('mealGroupSourceSlot').value);
+  $('mealGroupPreview').innerHTML=mealGroupPreviewHTML(items);
+}
+function openMealGroup(id=null){
+  editingMealGroupId=id;
+  const g=id?data.mealGroup.find(x=>x.id===id):null;
+  $('mealGroupDialogTitle').textContent=id?'식단 수정':'식단 만들기';
+  $('mealGroupName').value=g?.name||'';
+  $('mealGroupSourceDate').value=g?.sourceDate||selectedDate||todayISO();
+  $('mealGroupSourceSlot').value=g?.slot||g?.items?.[0]?.slot||'점심';
+  $('mealGroupPreview').innerHTML=g?mealGroupPreviewHTML(g.items||[]):mealGroupPreviewHTML(plansForMeal($('mealGroupSourceDate').value,$('mealGroupSourceSlot').value));
+  $('mealGroupDialog').showModal();
+}
+function removeMealGroup(id){
+  if(confirm('이 저장 식단을 삭제할까요? 이미 식단표에 불러온 식단에는 영향이 없습니다.')){data.mealGroup=data.mealGroup.filter(x=>x.id!==id);save()}
+}
+function refreshMealGroupLoadPreview(){
+  const g=data.mealGroup.find(x=>x.id===$('mealGroupSelect').value);
+  $('mealGroupLoadPreview').innerHTML=g?mealGroupPreviewHTML(g.items||[]):'';
+  if(g)$('mealGroupTargetSlot').value=g.slot||g.items?.[0]?.slot||'점심';
+}
+function openMealGroupLoad(id=null){
+  const arr=(data.mealGroup||[]).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ko'));
+  if(!arr.length){alert('먼저 “식단 만들기”에서 식단을 저장해주세요.');return}
+  $('mealGroupSelect').innerHTML=arr.map(g=>`<option value="${esc(g.id)}" ${id===g.id?'selected':''}>${esc(g.name)}</option>`).join('');
+  if(id)$('mealGroupSelect').value=id;
+  $('mealGroupTargetDate').value=selectedDate||todayISO();
+  refreshMealGroupLoadPreview();
+  $('mealGroupLoadDialog').showModal();
+}
+window.openMealGroup=openMealGroup;window.openMealGroupLoad=openMealGroupLoad;window.removeMealGroup=removeMealGroup;
+
+$('mealGroupSourceDate').addEventListener('change',updateMealGroupPreview);
+$('mealGroupSourceSlot').addEventListener('change',updateMealGroupPreview);
+$('mealGroupSelect').addEventListener('change',refreshMealGroupLoadPreview);
+$('addMealGroupBtn').onclick=()=>openMealGroup(null);
+$('loadMealGroupBtn').onclick=()=>openMealGroupLoad(null);
+$('mealGroupForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  const name=$('mealGroupName').value.trim(),date=$('mealGroupSourceDate').value,slot=$('mealGroupSourceSlot').value;
+  let items=plansForMeal(date,slot);
+  const old=editingMealGroupId?data.mealGroup.find(x=>x.id===editingMealGroupId):null;
+  if(old && !items.length && old.sourceDate===date && (old.slot||old.items?.[0]?.slot)===slot) items=(old.items||[]).map(x=>({...x,ingredients:(x.ingredients||[]).map(r=>({...r}))}));
+  if(!name)return;
+  if(!items.length){alert('선택한 날짜의 해당 끼니에 저장할 식단이 없어요. 식단표에서 먼저 식단을 만들어주세요.');return}
+  items=items.map(x=>({...x,slot}));
+  const obj={id:editingMealGroupId||uid(),name,items,sourceDate:date,slot};
+  if(editingMealGroupId){const i=data.mealGroup.findIndex(x=>x.id===editingMealGroupId);data.mealGroup[i]=obj}else data.mealGroup.push(obj);
+  editingMealGroupId=null;$('mealGroupDialog').close();save();
+});
+$('mealGroupLoadForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  const g=data.mealGroup.find(x=>x.id===$('mealGroupSelect').value),date=$('mealGroupTargetDate').value,slot=$('mealGroupTargetSlot').value;
+  if(!g||!date||!slot)return;
+  for(const item of g.items||[]){
+    data.plan.push({id:uid(),date,slot,note:item.note||'',ingredients:(item.ingredients||[]).map(r=>({...r})),done:false,deducted:[]});
+  }
+  selectedDate=date;calendarAnchor=parseLocalDate(date);currentMealTab='plan';currentTab='plan';
+  $('mealGroupLoadDialog').close();save();
+});
+
+function render(){
+  $('mealCount').textContent=data.meal.filter(x=>Number(x.qty)>0).length;
+  $('planCount').textContent=data.plan.filter(x=>!x.done&&x.date>=todayISO()).length;
+  $('prepPlanCount').textContent=(data.prepPlan||[]).filter(x=>!x.done).length;
+
+  const isPlan=currentSection==='meal'&&currentMealTab==='plan';
+  const isMealGroups=currentSection==='meal'&&currentMealTab==='groups';
+  const isFridge=currentSection==='fridge';
+  const isPrep=currentSection==='prep';
+
+  $('fridgeTabs').classList.toggle('hide',!isFridge);
+  $('mealTabs').classList.toggle('hide',currentSection!=='meal');
+  document.querySelectorAll('#mealTabs .sub-tab').forEach(b=>b.classList.toggle('active',b.dataset.mealTab===currentMealTab));
+  const fridgeStockView=isFridge&&currentTab==='stock';
+  $('fridgeHeading').classList.toggle('hide',!fridgeStockView);
+
+  $('inventoryToolbar').classList.toggle('hide',isPlan||isMealGroups||isPrep);
+  $('inventoryToolbar').classList.toggle('fridge-mode',fridgeStockView);
+  $('calendarSection').classList.toggle('hide',!isPlan);
+  $('mealGroupSection').classList.toggle('hide',!isMealGroups);
+  $('prepSection').classList.toggle('hide',!isPrep);
+  if(isPrep){
+    $('prepRecipesPane').classList.toggle('hide',currentPrepTab!=='recipes');
+    $('prepPlansPane').classList.toggle('hide',currentPrepTab!=='plans');
+    document.querySelectorAll('#prepTabs .sub-tab').forEach(b=>b.classList.toggle('active',b.dataset.prepTab===currentPrepTab));
+  }
+  list.classList.toggle('hide',isPlan||isMealGroups||isPrep);
+
+  renderCategoryTabs();
+  $('fridgeHeadingTitle').textContent=stockLocation;
+  const compartmentCount=data.stock.filter(x=>x.location===stockLocation&&(isQtyUnknown(x)||Number(x.qty)>0)).length;
+  $('fridgeHeadingCount').textContent=`${compartmentCount}개 품목`;
+
+  $('addBtn').style.display='block';
+  $('addBtn').textContent=isPrep?(currentPrepTab==='recipes'?'＋ 밀프랩 저장':'＋ 계획 추가'):(isMealGroups?'＋ 식단 만들기':(isPlan?'＋ 식단 추가':'＋ 추가'));
+
+  if(isPrep)renderPrep();else if(isMealGroups)renderMealGroups();else if(isPlan)renderCalendar();else renderInventory();
+}
+
+function changeQty(type,id,delta){
+  const x=data[type].find(v=>v.id===id);if(!x)return;
+  if(type==='stock'&&isQtyUnknown(x))return;
+  x.qty=Math.max(0,Number(x.qty||0)+delta);save();
+}
+function removeItem(type,id){if(confirm('삭제할까요?')){data[type]=data[type].filter(v=>v.id!==id);save()}}
+function updateQtyModeUI(){
+  const isMeal=editing?.type==='meal';
+  const unknown=!isMeal&&$('qtyMode').value==='unknown';
+  $('qtyModeField').classList.toggle('hide',isMeal);
+  $('qty').disabled=unknown;
+  $('qtyLabel').textContent=isMeal?'남은 끼니':'수량';
+  if(unknown){
+    $('qty').placeholder='수량 모름';
+  }else{
+    $('qty').placeholder='';
+    if($('qty').value==='')$('qty').value=1;
+  }
+}
+function openEdit(type,id=null){
+  editing={type,id};const isMeal=type==='meal';
+  $('dialogTitle').textContent=id?'수정':(isMeal?'밀프랩 추가':'재고 추가');
+  $('dateLabel').textContent=isMeal?'먹어야 하는 날짜':'소비기한';
+  const x=id?data[type].find(v=>v.id===id):null;
+  $('name').value=x?.name||'';
+  $('qtyMode').value=(!isMeal&&x?.qtyUnknown===true)?'unknown':'known';
+  $('qty').value=x?.qty??1;
+  $('unit').value=x?.unit||(isMeal?'끼':'개');
+  $('location').value=x?.location||(type==='stock'?stockLocation:'냉장');
+  $('categoryField').classList.toggle('hide',isMeal);
+  $('category').value=isMeal?'':cleanCategory(x?.category);
+  refreshCategorySuggestions();
+  $('date').value=x?.date||'';$('note').value=x?.note||'';
+  updateQtyModeUI();
+  $('editDialog').showModal();
+}
+window.changeQty=changeQty;window.removeItem=removeItem;window.openEdit=openEdit;
+$('qtyMode').onchange=updateQtyModeUI;
+
+$('editForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  if(e.submitter?.classList?.contains('dialog-cancel')){closeDialogFromCancel(e.submitter);return;}
+  const qtyUnknown=editing.type==='stock'&&$('qtyMode').value==='unknown';
+  const prev=editing.id?data[editing.type].find(v=>v.id===editing.id):null;
+  const obj={id:editing.id||uid(),name:$('name').value.trim(),qty:qtyUnknown?0:Number($('qty').value||0),qtyUnknown,unit:$('unit').value.trim(),location:$('location').value,category:editing.type==='stock'?(cleanCategory($('category').value)||'기타'):'',date:$('date').value,madeDate:editin

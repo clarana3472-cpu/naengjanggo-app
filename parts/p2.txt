@@ -1,0 +1,175 @@
+" data-location="냉동">냉동</button>
+    <button class="sub-tab" data-location="실온">실온</button>
+    <button class="sub-tab" data-tab="meal">밀프랩</button>
+  </div>
+
+  <div class="sub-tabs hide" id="mealTabs" style="grid-template-columns:repeat(2,1fr)">
+    <button class="sub-tab active" data-meal-tab="plan">식단표</button>
+    <button class="sub-tab" data-meal-tab="groups">식단 만들기</button>
+  </div>
+
+  <div class="category-tabs" id="categoryTabs"></div>
+
+  <div class="fridge-heading" id="fridgeHeading">
+    <div><strong id="fridgeHeadingTitle">냉장</strong></div>
+    <span id="fridgeHeadingCount">0개 품목</span>
+  </div>
+
+  <div class="toolbar fridge-mode" id="inventoryToolbar">
+    <input class="search" id="searchInput" placeholder="이름 검색">
+    <select class="filter" id="locationFilter">
+      <option value="">전체 위치</option><option>냉장</option><option>냉동</option><option>실온</option>
+    </select>
+  </div>
+
+  <div id="prepSection" class="hide">
+    <div class="sub-tabs" id="prepTabs" style="grid-template-columns:repeat(2,1fr); margin-bottom:12px">
+      <button class="sub-tab active" data-prep-tab="recipes">저장된 밀프랩</button>
+      <button class="sub-tab" data-prep-tab="plans">밀프랩 계획</button>
+    </div>
+
+    <div id="prepRecipesPane">
+      <div class="fridge-heading">
+        <div><strong>저장된 밀프랩</strong></div>
+        <button type="button" class="btn" id="addPrepRecipeBtn">＋ 밀프랩 저장</button>
+      </div>
+      <div class="list" id="prepRecipeList"></div>
+    </div>
+
+    <div id="prepPlansPane" class="hide">
+      <div class="fridge-heading">
+        <div><strong>밀프랩 계획</strong></div>
+        <span id="prepHeadingCount">0개 계획</span>
+      </div>
+      <div class="list" id="prepPlanList"></div>
+    </div>
+  </div>
+
+  <div id="mealGroupSection" class="hide">
+    <div class="fridge-heading">
+      <div><strong>저장된 식단</strong></div>
+      <button type="button" class="btn" id="addMealGroupBtn">＋ 식단 만들기</button>
+    </div>
+    <div class="inventory-hint" style="margin-bottom:12px">식단표에 만들어둔 한 끼를 고정 식단으로 저장해두고, 원하는 날짜의 아침·점심·저녁·간식에 바로 불러올 수 있어요.</div>
+    <div class="list" id="mealGroupList"></div>
+  </div>
+
+  <div id="calendarSection" class="calendar-wrap hide">
+    <div class="cal-top">
+      <button class="cal-nav" id="prevCal">‹</button>
+      <div class="cal-title" id="calTitle"></div>
+      <button class="cal-nav" id="nextCal">›</button>
+    </div>
+    <div class="cal-controls">
+      <div class="view-switch">
+        <button class="view-btn" id="todayViewBtn">오늘</button>
+        <button class="view-btn" id="tomorrowViewBtn">내일</button>
+        <button class="view-btn active" id="weekViewBtn">일주일</button>
+        <button class="view-btn" id="monthViewBtn">한달</button>
+      </div>
+    </div>
+    <div class="weekdays" id="weekdaysRow">
+      <div class="weekday">월</div><div class="weekday">화</div><div class="weekday">수</div>
+      <div class="weekday">목</div><div class="weekday">금</div><div class="weekday">토</div><div class="weekday">일</div>
+    </div>
+    <div class="calendar-grid week-grid" id="calendarGrid"></div>
+    <div class="month-note" id="calendarHint">날짜를 선택하면 아래에 식단이 표시됩니다.</div>
+    <div class="selected-head">
+      <div><div class="selected-title" id="selectedTitle"></div><div class="selected-sub" id="selectedSub"></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn" type="button" id="loadMealGroupBtn">저장 식단 불러오기</button>
+        <button class="selected-add" id="selectedAddBtn">＋ 식단</button>
+      </div>
+    </div>
+    <div class="list" id="planDayList"></div>
+  </div>
+
+  <div class="list" id="list"></div>
+  <button class="fab" id="addBtn">＋ 추가</button>
+</div>
+
+<dialog id="editDialog">
+  <form method="dialog" class="modal" id="editForm">
+    <h2 id="dialogTitle">추가</h2>
+    <div class="grid">
+      <div class="field full"><label>이름</label><input id="name" required placeholder="예: 닭가슴살"></div>
+      <div class="field" id="qtyModeField">
+        <label>수량 상태</label>
+        <select id="qtyMode">
+          <option value="known">수량 입력</option>
+          <option value="unknown">수량 모름</option>
+        </select>
+      </div>
+      <div class="field"><label id="qtyLabel">수량 / 남은 끼니</label><input id="qty" type="number" min="0" step="0.5" value="1"></div>
+      <div class="field"><label>단위</label><input id="unit" placeholder="예: 개, 팩, g, 끼"></div>
+      <div class="field"><label>보관 위치</label><select id="location"><option>냉장</option><option>냉동</option><option>실온</option></select></div>
+      <div class="field" id="categoryField"><label>카테고리</label><input id="category" list="categorySuggestions" placeholder="미입력 시 기타"><datalist id="categorySuggestions"></datalist></div>
+      <div class="field"><label id="dateLabel">소비기한</label><input id="date" type="date"></div>
+      <div class="field full"><label>메모</label><textarea id="note" placeholder="예: 2개는 삶아둠"></textarea></div>
+    </div>
+    <div class="modal-actions"><button type="button" class="btn dialog-cancel">취소</button><button class="btn primary" value="default">저장</button></div>
+  </form>
+</dialog>
+
+<dialog id="planDialog">
+  <form method="dialog" class="modal" id="planForm">
+    <h2 id="planDialogTitle">식단 추가</h2>
+    <div class="grid">
+      <div class="field"><label>날짜</label><input id="planDate" type="date" required></div>
+      <div class="field"><label>끼니</label><select id="planSlot"><option>아침</option><option>점심</option><option>저녁</option><option>간식</option></select></div>
+      <div class="field full"><label>메모</label><textarea id="planNote" placeholder="예: 운동 후 먹기"></textarea></div>
+    </div>
+    <div class="inventory-hint">아래에서 먹을 <b>현재 재고나 밀프랩</b>을 검색하세요. 입력하는 동안 일치하는 재고가 바로 아래에 나타나고, 원하는 항목을 눌러 선택할 수 있어요. “수량 모름” 재고는 먹음 처리해도 차감되지 않습니다.</div>
+    <div class="field full">
+      <label>사용할 재고</label>
+      <div id="ingredientRows"></div>
+      <button type="button" class="btn" id="addIngredientBtn">＋ 재고 연결</button>
+    </div>
+    <div class="modal-actions"><button type="button" class="btn dialog-cancel">취소</button><button class="btn primary" value="default">저장</button></div>
+  </form>
+</dialog>
+
+<dialog id="prepDialog">
+  <form method="dialog" class="modal" id="prepForm">
+    <h2 id="prepDialogTitle">밀프랩 계획 추가</h2>
+    <div class="grid">
+      <div class="field full"><label>밀프랩 이름</label><input id="prepName" required placeholder="예: 닭가슴살 볶음밥"></div>
+      <div class="field" id="prepDateField"><label>만들 날짜</label><input id="prepDate" type="date"></div>
+      <div class="field"><label>만들 수량</label><input id="prepQty" type="number" min="0.5" step="0.5" value="4" required></div>
+      <div class="field"><label>단위</label><input id="prepUnit" value="끼" placeholder="예: 끼, 팩"></div>
+      <div class="field"><label>보관 위치</label><select id="prepLocation"><option>냉장</option><option selected>냉동</option></select></div>
+      <div class="field full"><label>메모</label><textarea id="prepNote" placeholder="예: 4끼분 한 번에 만들기"></textarea></div>
+    </div>
+    <div class="inventory-hint">밀프랩에 필요한 <b>원료 재고</b>와 사용량을 넣으세요. 저장된 밀프랩은 다음에 다시 불러와 계획으로 사용할 수 있습니다.</div>
+    <div class="field full">
+      <label>원료</label>
+      <div id="prepIngredientRows"></div>
+      <button type="button" class="btn" id="addPrepIngredientBtn">＋ 원료 추가</button>
+    </div>
+    <div class="modal-actions"><button type="button" class="btn dialog-cancel">취소</button><button class="btn primary" value="default">저장</button></div>
+  </form>
+</dialog>
+
+<dialog id="mealGroupDialog">
+  <form method="dialog" class="modal" id="mealGroupForm">
+    <h2 id="mealGroupDialogTitle">식단 그룹 만들기</h2>
+    <div class="grid">
+      <div class="field full"><label>식단 이름</label><input id="mealGroupName" required placeholder="예: 닭가슴살 점심, 운동 후 식사"></div>
+      <div class="field"><label>가져올 날짜</label><input id="mealGroupSourceDate" type="date" required></div>
+      <div class="field"><label>가져올 끼니</label><select id="mealGroupSourceSlot"><option>아침</option><option>점심</option><option>저녁</option><option>간식</option></select></div>
+    </div>
+    <div class="inventory-hint">선택한 날짜의 <b>한 끼</b>에 들어있는 식단과 연결된 재고 사용량을 그대로 저장합니다. 이후 원하는 날짜와 끼니에 다시 불러올 수 있어요.</div>
+    <div id="mealGroupPreview" class="ingredients" style="margin-top:10px"></div>
+    <div class="modal-actions"><button type="button" class="btn dialog-cancel">취소</button><button class="btn primary" value="default">저장</button></div>
+  </form>
+</dialog>
+
+<dialog id="mealGroupLoadDialog">
+  <form method="dialog" class="modal" id="mealGroupLoadForm">
+    <h2>저장 식단 불러오기</h2>
+    <div class="grid">
+      <div class="field full"><label>저장된 식단</label><select id="mealGroupSelect" required></select></div>
+      <div class="field"><label>적용 날짜</label><input id="mealGroupTargetDate" type="date" required></div>
+      <div class="field"><label>적용 끼니</label><select id="mealGroupTargetSlot"><option>아침</option><option>점심</option><option>저녁</option><option>간식</option></select></div>
+    </div>
+    <div id="mealGroupLoadPreview" class="ingredients" style="margin-top:

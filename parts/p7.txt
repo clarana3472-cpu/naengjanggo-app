@@ -1,0 +1,224 @@
+g.type==='meal'?(prev?.madeDate||''):'',note:$('note').value.trim()};
+  if(!obj.name)return;
+  if(editing.id){const i=data[editing.type].findIndex(v=>v.id===editing.id);data[editing.type][i]=obj}else data[editing.type].push(obj);
+  $('editDialog').close();save();
+});
+
+function getInventoryItems(query=''){
+  const q=(query||'').trim().toLowerCase();
+  let opts=[...data.stock.map(x=>({...x,_type:'stock'})),...data.meal.map(x=>({...x,_type:'meal'}))]
+    .filter(x=>(x._type==='stock'&&isQtyUnknown(x))||Number(x.qty||0)>0);
+
+  if(q){
+    opts=opts.filter(x=>
+      String(x.name||'').toLowerCase().includes(q) ||
+      String(x.location||'').toLowerCase().includes(q) ||
+      String(x.category||'').toLowerCase().includes(q) ||
+      (x._type==='meal' && '밀프랩'.includes(q))
+    );
+  }
+
+  return opts.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ko'));
+}
+
+function inventoryOptions(selected='',query=''){
+  let opts=getInventoryItems(query);
+
+  if(selected && !opts.some(x=>`${x._type}|${x.id}`===selected)){
+    const [type,id]=selected.split('|');
+    const chosen=data[type]?.find(x=>x.id===id);
+    if(chosen) opts.unshift({...chosen,_type:type});
+  }
+
+  return `<option value="">재고 선택</option>`+opts.map(x=>{
+    const val=`${x._type}|${x.id}`;
+    const qtyText=(x._type==='stock'&&isQtyUnknown(x))?'수량 모름':`${x.qty}${x.unit?' '+esc(x.unit):''}`;
+    const typeText=x._type==='meal'?'밀프랩':(x.location||'');
+    return `<option value="${val}" ${val===selected?'selected':''}>${esc(x.name)} · ${qtyText}${typeText?' · '+esc(typeText):''}</option>`
+  }).join('');
+}
+function updateIngredientRow(wrap){
+  const select=wrap.querySelector('.ing-select');
+  const amount=wrap.querySelector('.ing-amount');
+  const label=wrap.querySelector('.ing-amount-label');
+  const v=select.value;
+  let unknown=false;
+  if(v){
+    const [type,id]=v.split('|');
+    const src=data[type]?.find(x=>x.id===id);
+    unknown=type==='stock'&&isQtyUnknown(src);
+  }
+  amount.disabled=unknown;
+  label.textContent='사용량';
+  if(unknown){
+    amount.value='';
+    amount.placeholder='차감 없음';
+  }else{
+    amount.placeholder='';
+    if(amount.value==='')amount.value=1;
+  }
+}
+function chooseIngredient(wrap,type,id){
+  const item=data[type]?.find(x=>x.id===id);
+  if(!item)return;
+
+  const select=wrap.querySelector('.ing-select');
+  const search=wrap.querySelector('.ing-search');
+  const results=wrap.querySelector('.ing-results');
+  const selectedText=wrap.querySelector('.ing-selected');
+
+  const val=`${type}|${id}`;
+  select.innerHTML=inventoryOptions(val,'');
+  select.value=val;
+  search.value=item.name||'';
+  selectedText.innerHTML=`선택됨: <b>${esc(item.name||'')}</b>`;
+  results.classList.remove('show');
+  results.innerHTML='';
+  updateIngredientRow(wrap);
+}
+
+function renderIngredientResults(wrap){
+  const search=wrap.querySelector('.ing-search');
+  const results=wrap.querySelector('.ing-results');
+  const q=(search.value||'').trim();
+
+  if(!q){
+    results.classList.remove('show');
+    results.innerHTML='';
+    return;
+  }
+
+  const items=getInventoryItems(q).slice(0,20);
+
+  if(!items.length){
+    results.innerHTML=`<div class="ing-no-result">일치하는 재고가 없어요.</div>`;
+    results.classList.add('show');
+    return;
+  }
+
+  results.innerHTML=items.map(x=>{
+    const qtyText=(x._type==='stock'&&isQtyUnknown(x))
+      ? '수량 모름'
+      : `${x.qty}${x.unit?' '+esc(x.unit):''}`;
+    const place=x._type==='meal'?'밀프랩':(x.location||'');
+    const category=cleanCategory(x.category);
+    const meta=[qtyText,place,category].filter(Boolean).join(' · ');
+    return `<button type="button" class="ing-result" data-type="${x._type}" data-id="${x.id}">
+      <span class="ing-result-name">${esc(x.name)}</span>
+      <span class="ing-result-meta">${meta}</span>
+    </button>`;
+  }).join('');
+
+  results.querySelectorAll('.ing-result').forEach(btn=>{
+    btn.onclick=()=>chooseIngredient(wrap,btn.dataset.type,btn.dataset.id);
+  });
+
+  results.classList.add('show');
+}
+
+function chooseFirstIngredientResult(wrap){
+  const first=wrap.querySelector('.ing-result');
+  if(first){
+    chooseIngredient(wrap,first.dataset.type,first.dataset.id);
+    return true;
+  }
+  return false;
+}
+function addIngredientRow(ref=null){
+  const wrap=document.createElement('div');wrap.className='ingredient-row';
+  const selected=ref?`${ref.type}|${ref.id}`:'';
+  const selectedItem=ref?data[ref.type]?.find(x=>x.id===ref.id):null;
+
+  wrap.innerHTML=`<div class="ing-picker">
+      <label>재고</label>
+      <input class="ing-search" type="search" autocomplete="off" placeholder="재고 검색 (예: 계란)" value="${esc(selectedItem?.name||'')}">
+      <div class="ing-results"></div>
+      <select class="ing-select hide">${inventoryOptions(selected,'')}</select>
+      <div class="ing-selected">${selectedItem?`선택됨: <b>${esc(selectedItem.name||'')}</b>`:'아직 선택 안 됨'}</div>
+    </div>
+    <div><label class="ing-amount-label">사용량</label><input class="ing-amount" type="number" min="0" step="0.5" value="${ref?.amount??1}"></div>
+    <button type="button" class="ing-remove" title="삭제">×</button>`;
+
+  wrap.querySelector('.ing-remove').onclick=()=>wrap.remove();
+
+  const searchInput=wrap.querySelector('.ing-search');
+  searchInput.oninput=()=>{
+    // 검색어를 새로 입력하기 시작하면 기존 선택을 해제
+    const select=wrap.querySelector('.ing-select');
+    select.value='';
+    wrap.querySelector('.ing-selected').textContent='아직 선택 안 됨';
+    renderIngredientResults(wrap);
+  };
+  searchInput.onfocus=()=>renderIngredientResults(wrap);
+  searchInput.onkeydown=e=>{
+    if(e.key==='Enter'){
+      e.preventDefault();
+      e.stopPropagation();
+      renderIngredientResults(wrap);
+      if(chooseFirstIngredientResult(wrap)) searchInput.blur();
+    }
+  };
+
+  $('ingredientRows').appendChild(wrap);
+  updateIngredientRow(wrap);
+}
+function openPlan(id=null,dateOverride=null){
+  editingPlanId=id;const p=id?data.plan.find(x=>x.id===id):null;
+  $('planDialogTitle').textContent=id?'식단 수정':'식단 추가';
+  $('planDate').value=p?.date||dateOverride||selectedDate||todayISO();
+  $('planSlot').value=p?.slot||'점심';$('planNote').value=p?.note||'';
+  $('ingredientRows').innerHTML='';
+  (p?.ingredients||[]).forEach(r=>addIngredientRow(r));
+  if(!(p?.ingredients?.length))addIngredientRow();
+  $('planDialog').showModal();
+}
+window.openPlan=openPlan;
+$('addIngredientBtn').onclick=()=>addIngredientRow();
+$('addPrepIngredientBtn').onclick=()=>addPrepIngredientRow();
+$('addPrepRecipeBtn').onclick=()=>openPrepRecipe(null);
+$('prepForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  if(e.submitter?.value==='cancel'){
+    delete $('prepDialog').dataset.recipeId;
+    editingPrepId=null;editingPrepRecipeId=null;
+    $('prepDialog').close();
+    return;
+  }
+  const ingredients=[...document.querySelectorAll('.prep-ingredient-row')].map(row=>{
+    const id=row.querySelector('.prep-ing-id').value;if(!id)return null;const src=data.stock.find(x=>x.id===id);if(!src)return null;const unknown=isQtyUnknown(src);const amount=unknown?null:Number(row.querySelector('.prep-ing-amount').value||0);if(!unknown&&amount<=0)return null;return {id,amount,name:src.name||'',unit:src.unit||'',noDeduct:unknown};
+  }).filter(Boolean);
+  const base={name:$('prepName').value.trim(),qty:Number($('prepQty').value||0),unit:$('prepUnit').value.trim()||'끼',location:$('prepLocation').value,note:$('prepNote').value.trim(),ingredients};
+  if(!base.name||base.qty<=0)return;
+  if(prepDialogMode==='recipe'){
+    const obj={id:editingPrepRecipeId||uid(),...base};
+    if(editingPrepRecipeId){const i=data.prepRecipe.findIndex(x=>x.id===editingPrepRecipeId);data.prepRecipe[i]=obj}else data.prepRecipe.push(obj);
+  }else{
+    const old=editingPrepId?data.prepPlan.find(x=>x.id===editingPrepId):null;
+    const recipeId=$('prepDialog').dataset.recipeId||old?.recipeId||null;
+    const obj={id:editingPrepId||uid(),...base,date:$('prepDate').value,recipeId,done:old?.done||false,deducted:old?.deducted||[],createdMealId:old?.createdMealId||null};
+    if(!obj.date)return;
+    if(editingPrepId){const i=data.prepPlan.findIndex(x=>x.id===editingPrepId);data.prepPlan[i]=obj}else data.prepPlan.push(obj);
+    currentPrepTab='plans';
+  }
+  delete $('prepDialog').dataset.recipeId;
+  $('prepDialog').close();save();
+});
+
+document.addEventListener('click',e=>{
+  document.querySelectorAll('.ing-picker').forEach(picker=>{
+    if(!picker.contains(e.target)){
+      picker.querySelector('.ing-results')?.classList.remove('show');
+    }
+  });
+});
+
+$('planForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  if(e.submitter?.classList?.contains('dialog-cancel')){closeDialogFromCancel(e.submitter);return;}
+  const ingredients=[...document.querySelectorAll('.ingredient-row')].map(row=>{
+    const v=row.querySelector('.ing-select').value;
+    if(!v)return null;
+    const [type,id]=v.split('|'),src=data[type].find(x=>x.id===id);
+    if(!src)return null;
+    const unknown=type==='stock'&&isQtyUnknown(src);
+    const amount=unknown?null:Number(row.querySelector('.ing-amount').value||0);

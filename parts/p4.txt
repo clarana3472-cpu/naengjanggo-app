@@ -1,0 +1,182 @@
+Source(r);
+        if(type==='stock' && src && isQtyUnknown(src)) continue;
+        total += Number(r.amount||0);
+      }
+    }
+  }
+  return total;
+}
+
+function planIngredientText(p){
+  if(!p.ingredients?.length)return'<span class="small">연결한 재고 없음</span>';
+
+  return p.ingredients.map(r=>{
+    const src=findSource(r);
+    const name=src?.name||r.name||'삭제된 재고';
+    const unit=src?.unit||r.unit||'';
+
+    if(src&&isQtyUnknown(src)){
+      return `<div>• ${esc(name)} <span class="small">(수량 모름 · 차감 안 함)</span></div>`;
+    }
+
+    if(!src){
+      return `<div style="color:#b45309">• ${esc(name)} <span class="small">(현재 재고 없음)</span></div>`;
+    }
+
+    const available=Number(src.qty||0);
+    const amount=Number(r.amount||0);
+
+    if(p.done){
+      return `<div>• ${esc(name)} ${amount}${unit?' '+esc(unit):''} <span class="small">(현재 ${available}${unit?' '+esc(unit):''})</span></div>`;
+    }
+
+    const plannedTotal=plannedAmountUntil(p,r.type,r.id);
+    const projected=available-plannedTotal;
+
+    if(projected>=0){
+      return `<div>• ${esc(name)} ${amount}${unit?' '+esc(unit):''} <span class="small">(현재 ${available}${unit?' '+esc(unit):''} → ${projected}${unit?' '+esc(unit):''} 남음)</span></div>`;
+    }
+
+    return `<div style="color:#b45309">• ${esc(name)} ${amount}${unit?' '+esc(unit):''} <span class="small">(현재 ${available}${unit?' '+esc(unit):''} → ${Math.abs(projected)}${unit?' '+esc(unit):''} 부족)</span></div>`;
+  }).join('');
+}
+function planCard(p){
+  return `<div class="card plan-card ${p.done?'done':''}">
+    <div class="card-top"><div>
+      <div><span class="badge blue">${esc(p.slot)}</span>${p.done?'<span class="badge good">먹음</span>':''}</div>
+      ${p.note?`<div class="meta">📝 ${esc(p.note)}</div>`:''}
+    </div></div>
+    <div class="ingredients">${planIngredientText(p)}</div>
+    <div class="actions">
+      ${p.done?`<button class="btn" onclick="undoPlan('${p.id}')">완료 취소</button>`:`<button class="btn good" onclick="eatPlan('${p.id}')">✓ 먹음 · 재고차감</button>`}
+      <button class="btn" onclick="openPlan('${p.id}')">수정</button>
+      <button class="btn danger" onclick="removePlan('${p.id}')">삭제</button>
+    </div>
+  </div>`;
+}
+
+function plansForDate(s){
+  return data.plan.filter(p=>p.date===s).sort((a,b)=>slotOrder(a.slot)-slotOrder(b.slot));
+}
+function renderSelectedDay(){
+  $('selectedTitle').textContent=formatDateLong(selectedDate);
+  const ps=plansForDate(selectedDate);
+  $('selectedSub').textContent=ps.length?`${ps.length}개의 식단`:'아직 식단이 없어요';
+  $('planDayList').innerHTML=ps.length?ps.map(planCard).join(''):`<div class="empty" style="padding:24px 12px">이 날짜에는 아직 식단이 없어요.</div>`;
+}
+function calendarCell(date,outside=false){
+  const iso=localISO(date),ps=plansForDate(iso);
+  const itemLimit=calendarView==='month'?3:6;
+  const items=ps.slice(0,itemLimit).map(p=>`<div class="day-item ${p.done?'done':''}">${esc(p.slot)} · ${esc(planCalendarLabel(p))}</div>`).join('');
+  const more=ps.length>itemLimit?`<div class="more">+${ps.length-itemLimit}개 더</div>`:'';
+  const cls=['day',outside?'outside':'',iso===selectedDate?'selected':'',iso===todayISO()?'today':''].filter(Boolean).join(' ');
+  return `<button class="${cls}" data-date="${iso}" type="button">
+    <span class="date-num">${date.getDate()}</span>
+    <div class="day-items">${items}${more}</div>
+  </button>`;
+}
+function renderCalendar(){
+  const grid=$('calendarGrid');
+  const weekdays=$('weekdaysRow');
+  const isDaily=calendarView==='today'||calendarView==='tomorrow';
+  let html='';
+
+  if(isDaily){
+    selectedDate = calendarView==='today' ? todayISO() : localISO(addDays(parseLocalDate(todayISO()),1));
+    calendarAnchor=parseLocalDate(selectedDate);
+    const d=parseLocalDate(selectedDate);
+    $('calTitle').textContent=`${calendarView==='today'?'오늘':'내일'} · ${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`;
+    weekdays.classList.add('hide');
+    grid.classList.add('hide');
+    $('calendarHint').classList.add('hide');
+    $('prevCal').style.visibility='hidden';
+    $('nextCal').style.visibility='hidden';
+  }else if(calendarView==='week'){
+    weekdays.classList.remove('hide');
+    grid.classList.remove('hide');
+    $('calendarHint').classList.remove('hide');
+    $('prevCal').style.visibility='visible';
+    $('nextCal').style.visibility='visible';
+    const start=startOfWeek(calendarAnchor);
+    const end=addDays(start,6);
+    $('calTitle').textContent=`${start.getFullYear()}년 ${start.getMonth()+1}월 ${start.getDate()}일 – ${end.getMonth()+1}월 ${end.getDate()}일`;
+    grid.classList.add('week-grid');
+    for(let i=0;i<7;i++)html+=calendarCell(addDays(start,i),false);
+  }else{
+    weekdays.classList.remove('hide');
+    grid.classList.remove('hide');
+    $('calendarHint').classList.remove('hide');
+    $('prevCal').style.visibility='visible';
+    $('nextCal').style.visibility='visible';
+    const y=calendarAnchor.getFullYear(),m=calendarAnchor.getMonth();
+    $('calTitle').textContent=`${y}년 ${m+1}월`;
+    grid.classList.remove('week-grid');
+    const first=new Date(y,m,1),start=startOfWeek(first);
+    for(let i=0;i<42;i++){
+      const d=addDays(start,i);
+      html+=calendarCell(d,d.getMonth()!==m);
+    }
+  }
+
+  grid.innerHTML=html;
+  if(!isDaily){
+    grid.querySelectorAll('.day').forEach(btn=>btn.onclick=()=>{
+      selectedDate=btn.dataset.date;
+      calendarAnchor=parseLocalDate(selectedDate);
+      renderCalendar();renderSelectedDay();
+    });
+  }
+  renderSelectedDay();
+}
+function setCalendarView(view){
+  calendarView=view;
+  $('todayViewBtn').classList.toggle('active',view==='today');
+  $('tomorrowViewBtn').classList.toggle('active',view==='tomorrow');
+  $('weekViewBtn').classList.toggle('active',view==='week');
+  $('monthViewBtn').classList.toggle('active',view==='month');
+  renderCalendar();
+}
+function moveCalendar(dir){
+  if(calendarView==='week')calendarAnchor=addDays(calendarAnchor,dir*7);
+  else if(calendarView==='month')calendarAnchor=new Date(calendarAnchor.getFullYear(),calendarAnchor.getMonth()+dir,1);
+  selectedDate=localISO(calendarAnchor);
+  renderCalendar();
+}
+
+function prepStockItems(query=''){
+  const q=(query||'').trim().toLowerCase();
+  return data.stock
+    .filter(x=>isQtyUnknown(x)||Number(x.qty||0)>0)
+    .filter(x=>!q || String(x.name||'').toLowerCase().includes(q) || String(x.location||'').toLowerCase().includes(q) || String(x.category||'').toLowerCase().includes(q))
+    .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ko'));
+}
+function prepChooseIngredient(wrap,id){
+  const item=data.stock.find(x=>x.id===id);if(!item)return;
+  wrap.querySelector('.prep-ing-id').value=id;
+  wrap.querySelector('.prep-ing-search').value=item.name||'';
+  wrap.querySelector('.ing-selected').innerHTML=`선택됨: <b>${esc(item.name||'')}</b>`;
+  wrap.querySelector('.ing-results').classList.remove('show');
+  const amount=wrap.querySelector('.prep-ing-amount');
+  const label=wrap.querySelector('.prep-ing-label');
+  if(isQtyUnknown(item)){amount.disabled=true;amount.value='';amount.placeholder='차감 없음';label.textContent='사용량'}
+  else{amount.disabled=false;amount.placeholder='';if(amount.value==='')amount.value=1;label.textContent='사용량'}
+}
+function prepRenderIngredientResults(wrap){
+  const q=(wrap.querySelector('.prep-ing-search').value||'').trim();
+  const box=wrap.querySelector('.ing-results');
+  if(!q){box.classList.remove('show');box.innerHTML='';return}
+  const items=prepStockItems(q).slice(0,20);
+  box.innerHTML=items.length?items.map(x=>{
+    const qty=isQtyUnknown(x)?'수량 모름':`${x.qty}${x.unit?' '+esc(x.unit):''}`;
+    return `<button type="button" class="ing-result" data-id="${x.id}"><span class="ing-result-name">${esc(x.name)}</span><span class="ing-result-meta">${qty} · ${esc(x.location||'')}${cleanCategory(x.category)?' · '+esc(cleanCategory(x.category)):''}</span></button>`
+  }).join(''):`<div class="ing-no-result">일치하는 원료 재고가 없어요.</div>`;
+  box.querySelectorAll('.ing-result').forEach(btn=>btn.onclick=()=>prepChooseIngredient(wrap,btn.dataset.id));
+  box.classList.add('show');
+}
+function addPrepIngredientRow(ref=null){
+  const wrap=document.createElement('div');wrap.className='ingredient-row prep-ingredient-row';
+  const item=ref?data.stock.find(x=>x.id===ref.id):null;
+  wrap.innerHTML=`<div class="ing-picker"><label>원료 재고</label><input class="prep-ing-search ing-search" type="search" autocomplete="off" placeholder="원료 검색 (예: 계란)" value="${esc(item?.name||'')}"><div class="ing-results"></div><input class="prep-ing-id" type="hidden" value="${ref?.id||''}"><div class="ing-selected">${item?`선택됨: <b>${esc(item.name||'')}</b>`:'아직 선택 안 됨'}</div></div><div><label class="prep-ing-label">사용량</label><input class="prep-ing-amount ing-amount" type="number" min="0" step="0.5" value="${ref?.amount??1}"></div><button type="button" class="ing-remove" title="삭제">×</button>`;
+  wrap.querySelector('.ing-remove').onclick=()=>wrap.remove();
+  const search=wrap.querySelector('.prep-ing-search');
+  search.oninput=()=>{wrap.querySelector('.prep-ing-id').value='';wr

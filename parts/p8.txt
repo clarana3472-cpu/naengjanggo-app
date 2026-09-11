@@ -1,0 +1,149 @@
+
+    if(!unknown&&amount<=0)return null;
+    return {type,id,amount,name:src?.name||'',unit:src?.unit||'',noDeduct:unknown};
+  }).filter(Boolean);
+  const old=editingPlanId?data.plan.find(x=>x.id===editingPlanId):null;
+  const obj={id:editingPlanId||uid(),date:$('planDate').value,slot:$('planSlot').value,note:$('planNote').value.trim(),ingredients,done:old?.done||false,deducted:old?.deducted||[]};
+  if(!obj.date)return;
+  if(editingPlanId){const i=data.plan.findIndex(x=>x.id===editingPlanId);data.plan[i]=obj}else data.plan.push(obj);
+  selectedDate=obj.date;calendarAnchor=parseLocalDate(selectedDate);
+  $('planDialog').close();save();
+});
+
+function eatPlan(id){
+  const p=data.plan.find(x=>x.id===id);if(!p||p.done)return;
+  const shortages=[];
+  for(const r of p.ingredients||[]){
+    const s=findSource(r);
+    if(!s){shortages.push(r.name||'재고');continue}
+    if(r.type==='stock'&&isQtyUnknown(s))continue;
+    if(Number(s.qty||0)<Number(r.amount||0))shortages.push(s.name||r.name||'재고');
+  }
+  const hasUnknown=(p.ingredients||[]).some(r=>{const s=findSource(r);return r.type==='stock'&&isQtyUnknown(s)});
+  const normalMsg=hasUnknown
+    ? '먹은 것으로 표시할까요? “수량 모름” 재고는 그대로 두고, 수량이 있는 재고만 차감됩니다.'
+    : '먹은 것으로 표시하고 연결한 재고를 차감할까요?';
+  const msg=shortages.length?`재고가 부족한 항목이 있어요: ${shortages.join(', ')}\n그래도 가능한 수량만 차감하고 완료할까요?`:normalMsg;
+  if(!confirm(msg))return;
+  p.deducted=[];
+  for(const r of p.ingredients||[]){
+    const src=findSource(r);if(!src)continue;
+    if(r.type==='stock'&&isQtyUnknown(src))continue;
+    const before=Number(src.qty||0),used=Math.min(before,Number(r.amount||0));
+    src.qty=Math.max(0,before-used);p.deducted.push({type:r.type,id:r.id,amount:used});
+  }
+  p.done=true;save();
+}
+function undoPlan(id){
+  const p=data.plan.find(x=>x.id===id);if(!p||!p.done)return;
+  if(!confirm('완료를 취소하고 차감했던 재고를 다시 돌려놓을까요?'))return;
+  for(const r of p.deducted||[]){const src=findSource(r);if(src&&!isQtyUnknown(src))src.qty=Number(src.qty||0)+Number(r.amount||0)}
+  p.done=false;p.deducted=[];save();
+}
+function removePlan(id){if(confirm('이 식단을 삭제할까요?')){data.plan=data.plan.filter(x=>x.id!==id);save()}}
+window.eatPlan=eatPlan;window.undoPlan=undoPlan;window.removePlan=removePlan;
+
+function goToMealInventory(){
+  currentSection='fridge';
+  currentTab='meal';
+  document.querySelectorAll('.main-tab').forEach(x=>x.classList.toggle('active',x.dataset.section==='fridge'));
+  document.querySelectorAll('#fridgeTabs .sub-tab').forEach(x=>x.classList.toggle('active',x.dataset.tab==='meal'));
+  $('searchInput').value='';
+  $('locationFilter').value='';
+  render();
+  requestAnimationFrame(()=>document.querySelector('#fridgeTabs')?.scrollIntoView({behavior:'smooth',block:'start'}));
+}
+$('mealSummary').onclick=goToMealInventory;
+$('mealSummary').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();goToMealInventory();}};
+
+document.querySelectorAll('.main-tab').forEach(btn=>btn.onclick=()=>{
+  document.querySelectorAll('.main-tab').forEach(x=>x.classList.remove('active'));
+  btn.classList.add('active');
+  currentSection=btn.dataset.section;
+
+  if(currentSection==='fridge'){
+    const activeFridgeTab=document.querySelector('#fridgeTabs .sub-tab.active');
+    currentTab=activeFridgeTab?.dataset.tab==='meal'?'meal':'stock';
+    if(currentTab==='stock'&&activeFridgeTab?.dataset.location){
+      stockLocation=activeFridgeTab.dataset.location;
+      const cats=categoriesForLocation(stockLocation);
+      if(stockCategory!=='전체'&&!cats.includes(stockCategory)) stockCategory='전체';
+    }
+  }else if(currentSection==='meal'){
+    currentTab='plan';
+    currentMealTab=currentMealTab||'plan';
+  }else{
+    currentTab='prep';
+  }
+  $('searchInput').value='';
+  $('locationFilter').value='';
+  render();
+});
+
+document.querySelectorAll('#fridgeTabs .sub-tab').forEach(btn=>btn.onclick=()=>{
+  document.querySelectorAll('#fridgeTabs .sub-tab').forEach(x=>x.classList.remove('active'));
+  btn.classList.add('active');
+  if(btn.dataset.tab==='meal'){
+    currentTab='meal';
+  }else{
+    stockLocation=btn.dataset.location;
+    stockCategory='전체';
+    currentTab='stock';
+  }
+  $('searchInput').value='';
+  $('locationFilter').value='';
+  render();
+});
+
+document.querySelectorAll('#mealTabs .sub-tab').forEach(btn=>btn.onclick=()=>{
+  currentMealTab=btn.dataset.mealTab;
+  currentTab='plan';
+  document.querySelectorAll('#mealTabs .sub-tab').forEach(x=>x.classList.toggle('active',x.dataset.mealTab===currentMealTab));
+  $('searchInput').value='';
+  render();
+});
+document.querySelectorAll('#prepTabs .sub-tab').forEach(btn=>btn.onclick=()=>{
+  currentPrepTab=btn.dataset.prepTab;
+  render();
+});
+$('searchInput').oninput=render;$('locationFilter').onchange=render;
+$('todayViewBtn').onclick=()=>setCalendarView('today');
+$('tomorrowViewBtn').onclick=()=>setCalendarView('tomorrow');
+$('weekViewBtn').onclick=()=>setCalendarView('week');
+$('monthViewBtn').onclick=()=>setCalendarView('month');
+$('prevCal').onclick=()=>moveCalendar(-1);$('nextCal').onclick=()=>moveCalendar(1);
+$('selectedAddBtn').onclick=()=>openPlan(null,selectedDate);
+$('addBtn').onclick=()=>currentSection==='prep'?(currentPrepTab==='recipes'?openPrepRecipe(null):openPrep(null)):(currentSection==='meal'?(currentMealTab==='groups'?openMealGroup(null):openPlan(null,selectedDate)):openEdit(currentTab==='meal'?'meal':'stock'));
+
+$('settingsBtn').onclick=()=>$('settingsDialog').showModal();$('closeSettings').onclick=()=>$('settingsDialog').close();
+$('exportBtn').onclick=()=>{
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='내냉장고_식단_백업.json';a.click();URL.revokeObjectURL(a.href);
+};
+$('importBtn').onclick=()=>$('importFile').click();
+$('importFile').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{
+    const parsed=JSON.parse(await f.text());
+    if(!Array.isArray(parsed.stock)||!Array.isArray(parsed.meal))throw 0;
+    data={stock:parsed.stock,meal:parsed.meal,plan:Array.isArray(parsed.plan)?parsed.plan:[],prepPlan:Array.isArray(parsed.prepPlan)?parsed.prepPlan:[],prepRecipe:Array.isArray(parsed.prepRecipe)?parsed.prepRecipe:[],mealGroup:Array.isArray(parsed.mealGroup)?parsed.mealGroup:[]};
+    data.stock=data.stock.map(x=>({...x,qtyUnknown:x.qtyUnknown===true,category:String(x.category||'').trim()||'기타'}));
+    save();alert('백업을 불러왔어요.');
+  }catch{alert('올바른 백업 파일이 아니에요.')}
+  e.target.value='';
+};
+$('resetBtn').onclick=()=>{
+  if(confirm('정말 모든 데이터를 삭제할까요? 이 작업은 되돌릴 수 없어요.')){
+    data={stock:[],meal:[],plan:[],prepPlan:[],prepRecipe:[],mealGroup:[]};save();$('settingsDialog').close();
+  }
+};
+render();
+</script>
+
+<script>
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+}
+</script>
+</body>
+</html>
